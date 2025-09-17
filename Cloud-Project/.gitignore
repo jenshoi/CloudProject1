@@ -1,0 +1,44 @@
+# Node dependencies
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs
+*.log
+*.log.*
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Runtime data
+tmp/
+temp/
+*.tmp
+*.swp
+*.swo
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Editor-specific
+.vscode/
+.idea/
+*.iml
+
+# Uploads/outputs (handled by S3 now)
+uploads/
+outputs/
+
+# Docker
+*.pid
+*.seed
+*.pid.lock
+docker-compose.override.yml
