@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8">
+  <title>CarCounter</title>
+</head>
+<body>
+  <h1>Video-analysis</h1>
+
+  <section>
+    <h2>Login</h2>
+    <form id="loginForm">
+      <input type="text" id="username" placeholder="Brukernavn" required>
+      <input type="password" id="password" placeholder="Passord" required>
+      <button type="submit">Login</button>
+    </form>
+    <p id="loginStatus"></p>
+  </section>
+
+  <section>
+    <h2>Load video</h2>
+    <form id="uploadForm">
+      <input type="file" id="videoFile" accept="video/*" required>
+      <button type="submit">Analayse</button>
+    </form>
+    <p id="uploadStatus"></p>
+  </section>
+
+  <section>
+    <h2>Results</h2>
+    <input type="text" id="jobId" placeholder="Job ID">
+    <button id="checkResult">fetch result </button>
+    <pre id="resultOutput"></pre>
+
+    <video id="videoPlayer" controls style="display:none;width:100%;max-width:720px;"></video>
+    <div id="gallery"></div>
+  </section>
+
+  <script>
+    const API = ""; 
+    let token = null;
+
+    // Login
+    document.getElementById("loginForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = document.getElementById("username").value;
+      const password = document.getElementById("password").value;
+
+      const res = await fetch(`${API}/users/login`, { //fetch method is the connecting part to backend
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+
+      const data = await res.json();
+      if (data.token) {
+        token = data.token;
+        document.getElementById("loginStatus").textContent = "Innlogget!";
+      } else {
+        document.getElementById("loginStatus").textContent = "Feil brukernavn/passord";
+      }
+    });
+
+    // Upload video
+    document.getElementById("uploadForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!token) {
+        alert("Du må logge inn først!");
+        return;
+      }
+
+      const file = document.getElementById("videoFile").files[0];
+      const form = new FormData();
+      form.append("video", file);
+
+      const res = await fetch(`${API}/videos/analyze`, { //fetch method is the connecting part to backend
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}` },
+        body: form,
+      });
+
+      const data = await res.json();
+      document.getElementById("uploadStatus").textContent = "Job startet: " + JSON.stringify(data);
+      if (data.jobId) {
+        document.getElementById("jobId").value = data.jobId;
+      }
+    });
+
+document.getElementById("checkResult").addEventListener("click", async () => {
+  if (!token) { 
+    alert("Du må logge inn først!"); 
+    return; 
+  }
+  const id = document.getElementById("jobId").value;
+  if (!id) { 
+    alert("No JobID"); 
+    return; 
+  }
+
+  // Hent resultat
+  const res = await fetch(`${API}/videos/result/${id}`, {
+    headers: { "Authorization": `Bearer ${token}` },
+  });
+  const data = await res.json();
+  document.getElementById("resultOutput").textContent = JSON.stringify(data, null, 2);
+
+  // Vis video dersom ferdig
+  const videoEl = document.getElementById("videoPlayer");
+  if (data.status === "done" && data.video) {
+    videoEl.src = data.video;
+    videoEl.style.display = "block";
+  } else {
+    videoEl.removeAttribute("src");
+    videoEl.style.display = "none";
+  }
+
+  // Vis snapshots
+  const gallery = document.getElementById("gallery");
+  gallery.innerHTML = "";
+
+if (data.status === "done" && Array.isArray(data.images)) {
+  if (data.images.length === 0) {
+    const p = document.createElement('p');
+    p.textContent = "No snapshots";
+    gallery.appendChild(p);
+  } else {
+    data.images.forEach(url => {
+      const img = document.createElement('img');
+      img.src = url;            // <-- allerede full https-URL (presigned)
+      img.loading = "lazy";
+      img.style.maxWidth = "320px";
+      img.style.margin = "6px";
+      gallery.appendChild(img);
+    });
+  }
+}
+});
+
+      
+
+  </script>
+</body>
+</html>

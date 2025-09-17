@@ -1,0 +1,48 @@
+version: "3.9"
+
+services:
+  db:
+    image: mariadb:11
+    container_name: videos-db
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: rootpass
+      MARIADB_DATABASE: ${DB_NAME:-videosdb}
+      MARIADB_USER: ${DB_USER:-user}
+      MARIADB_PASSWORD: ${DB_PASSWORD:-pass}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    container_name: cloud-project-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: ${PORT:-3000}
+      DB_HOST: db
+      DB_USER: ${DB_USER:-user}
+      DB_PASSWORD: ${DB_PASSWORD:-pass}
+      DB_NAME: ${DB_NAME:-videosdb}
+      JWT_SECRET: ${JWT_SECRET:-dinHemmeligeNøkkel123}
+      YOLO_VERBOSE: "False"
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - ./public:/app/public
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
+      - yolo_cache:/root/.cache/ultralytics
+    # gi containeren litt mer delte minne (occasionally nyttig med opencv/ffmpeg)
+    shm_size: "512m"
+
+volumes:
+  db_data:
+  yolo_cache:

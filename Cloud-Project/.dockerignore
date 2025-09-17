@@ -1,0 +1,13 @@
+npm-debug.log
+Dockerfile
+docker-compose.yml
+.git
+.gitignore
+**/.DS_Store
+uploads
+outputs
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.json
