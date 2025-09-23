@@ -5,6 +5,7 @@ const os = require('os');
 const fsp = require('fs/promises');
 const { spawn } = require('child_process');
 const crypto = require('crypto');
+const { getAsync, setAsync, delAsync } = require('../cache/memcached'); // ADD
 
 const { uploadFile, getSignedUrlForS3Url, parseS3Url, s3, getPresignedPutUrl } = require('../aws/s3');
 
@@ -117,6 +118,13 @@ exports.analyzeVideo = async (req, res) => {
         await uploadFile(metaKey, Buffer.from(JSON.stringify(s3Meta, null, 2), 'utf8'), 'application/json');
 
         await updateJobDone({ id, count: safeCount ?? null, qutUsername });
+        try {
+          await delAsync(`job:${id}`);    
+          await delAsync(`images:${id}`);  
+  
+        } catch (e) {
+          console.warn('cache invalidation failed', e?.message || e);
+        }
 
         // Rydd opp temp
         try { await fsp.rm(tmpJobDir, { recursive: true, force: true }); } catch {}
@@ -243,6 +251,12 @@ exports.analyzeFromS3 = async (req, res) => {
           : (meta.by_class ? Object.values(meta.by_class).reduce((a,b)=> a + (b|0), 0) : null);
 
         await updateJobDone({ id, count: safeCount ?? null, qutUsername });
+        try {
+          await delAsync(`job:${id}`);     
+          await delAsync(`images:${id}`);   
+          } catch (e) {
+            console.warn('cache invalidation failed', e?.message || e);
+          }
 
         try { await fsp.rm(tmpJobDir, { recursive: true, force: true }); } catch {}
       } catch (e) {
@@ -261,9 +275,19 @@ exports.analyzeFromS3 = async (req, res) => {
 
 exports.getResult = async (req, res) => {
   try {
-    const job = await getJob(req.params.id, qutUsername);
-    const owner = await getOwner(req.params.id, qutUsername);
+    const id = req.params.id;
 
+    // Cache: HIT/MISS
+    const ck = `job:${id}`;
+    const cached = await getAsync(ck);
+    if (cached) {
+      console.log('[cache] HIT', ck);
+      return res.json(JSON.parse(cached));
+    }
+    console.log('[cache] MISS', ck);
+
+    const job = await getJob(id, qutUsername);
+    const owner = await getOwner(id, qutUsername);
     if (!job) return res.status(404).json({ error: "could not find the jobID" });
     if (!owner) return res.status(404).json({ error: "could not find the jobID" });
 
@@ -277,34 +301,41 @@ exports.getResult = async (req, res) => {
 }
 
     if (job.status !== 'done') {
-      return res.json({ jobID: req.params.id, status: job.status, count: job.count ?? null, video: null, images: [], owner });
-    }
+      const payload = { jobID: id, status: job.status, count: job.count ?? null, video: null, images: [], owner };
+      await setAsync(`job:${id}`, JSON.stringify(payload), 3);
+      return res.json(payload);
+}
 
-    let images = [];
-    let videoUrl = null;
-
+    let videoUrl = null, images = [];
     if (job.output_path?.startsWith('s3://')) {
       videoUrl = await getSignedUrlForS3Url(job.output_path, 3600);
     }
-
     if (job.metadata_path?.startsWith('s3://')) {
-      const { bucket, key } = parseS3Url(job.metadata_path);
-      const cmd = new GetObjectCommand({ Bucket: bucket, Key: key });
-      const resp = await s3.send(cmd);
-      const metaText = await streamToString(resp.Body);
-      const meta = JSON.parse(metaText || '{}');
-      const imgKeys = Array.isArray(meta.images) ? meta.images : [];
-
-      images = await Promise.all(imgKeys.map(async (s3url) => getSignedUrlForS3Url(s3url, 3600)));
+      try{
+        const { bucket, key } = parseS3Url(job.metadata_path);
+        const cmd = new GetObjectCommand({ Bucket: bucket, Key: key });
+        const resp = await s3.send(cmd);
+        const meta = JSON.parse(await streamToString(resp.Body) || '{}');
+        const imgKeys = Array.isArray(meta.images) ? meta.images : [];
+        images = await Promise.all(imgKeys.map(u => getSignedUrlForS3Url(u, 3600)));
+      } catch (e){
+        images = [];
+      }
+      
     }
 
-    return res.json({ jobID: req.params.id, status: job.status, count: job.count ?? null, video: videoUrl, images, owner });
+    const payload = { jobID: id, status: job.status, count: job.count ?? null, video: videoUrl, images, owner };
 
+    const ttlSec = job.status === 'running' ? 3 : 120;
+    await setAsync(ck, JSON.stringify(payload), ttlSec);
+
+    return res.json(payload); // ← JA, her returnerer du payload
   } catch (err) {
     console.error("getResult error:", err);
     return res.status(500).json({ error: "internal error in getResult" });
   }
 };
+
 
 // ------------------------------------------------------------
 // LIST IMAGES
@@ -312,6 +343,16 @@ exports.getResult = async (req, res) => {
 exports.listImages = async (req, res) => {
   try {
     const id = req.params.id;
+
+    // Cache: HIT/MISS
+    const ck = `images:${id}`;
+    const cached = await getAsync(ck);
+    if (cached) {
+      console.log('[cache] HIT', ck);
+      return res.json(JSON.parse(cached));
+    }
+    console.log('[cache] MISS', ck);
+
     const job = await getJob(id, qutUsername);
     if (!job) return res.status(404).json({ error: "cant find job" });
 
@@ -323,23 +364,28 @@ exports.listImages = async (req, res) => {
 
     let images = [];
     if (job.metadata_path?.startsWith('s3://')) {
-      const { bucket, key } = parseS3Url(job.metadata_path);
-      const cmd = new GetObjectCommand({ Bucket: bucket, Key: key });
-      const resp = await s3.send(cmd);
-      const metaText = await streamToString(resp.Body);
-      const meta = JSON.parse(metaText || '{}');
-      const imgKeys = Array.isArray(meta.images) ? meta.images : [];
-
-      images = await Promise.all(imgKeys.map(async (s3url) => getSignedUrlForS3Url(s3url, 3600)));
+    try{
+        const { bucket, key } = parseS3Url(job.metadata_path);
+        const cmd = new GetObjectCommand({ Bucket: bucket, Key: key });
+        const resp = await s3.send(cmd);
+        const meta = JSON.parse(await streamToString(resp.Body) || '{}');
+        const imgKeys = Array.isArray(meta.images) ? meta.images : [];
+        images = await Promise.all(imgKeys.map(u => getSignedUrlForS3Url(u, 3600)));
+      } catch (e){
+        images = [];
+      }
     }
 
-    return res.json({ images });
+    const result = { images };
+    await setAsync(ck, JSON.stringify(result), 60);
 
+    return res.json(result); // ← her returnerer du result, ikke payload
   } catch (err) {
     console.error("listImages error:", err);
     return res.status(500).json({ error: "internal error in listImages" });
   }
 };
+
 
 // ------------------------------------------------------------
 // STREAM OUTPUT (kan evt fjernes, getResult returnerer video-URL)
@@ -364,17 +410,25 @@ exports.streamOutput = async (req, res) => {
   }
 };
 
-// ------------------------------------------------------------
-// LIST MINE
-// ------------------------------------------------------------
 exports.listAll = async (req, res) => {
-  try {
+  try{
     const limit = Math.min(Number(req.query.limit || 50), 200);
     const offset = Number(req.query.offset || 0);
+
+    const ck = `list:${limit}:${offset}`;
+    const cached = await getAsync(ck);      
+    if (cached) {                           
+      console.log('[cache] HIT', ck);       
+      return res.json(JSON.parse(cached));  
+    }                                       
+    console.log('[cache] MISS', ck);        
+
     const rows = await listJobs({ limit, offset, qutUsername });
-    const mine = rows.filter(r => r.owner === req.user.username);
-    return res.json({ items: mine, limit, offset });
-  } catch (e) {
+    const out = { items: rows, limit, offset }; 
+    await setAsync(ck, JSON.stringify(out), 60); 
+    return res.json(out);
+  }
+  catch (e) {
     console.error('listAll failed:', e);
     return res.status(500).json({ error: 'listAll failed', message: e.message });
   }
@@ -389,7 +443,7 @@ function streamToString(stream) {
     stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
   });
 }
-
+//Helper
 function streamToFile(stream, filePath) {
   return new Promise((resolve, reject) => {
     fs.mkdir(path.dirname(filePath), { recursive: true }, (mkErr) => {

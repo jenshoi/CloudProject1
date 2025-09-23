@@ -2,7 +2,6 @@
 // app.js — bootstrapper som laster SSM-verdier før resten starter
 
 require('dotenv').config();
-<<<<<<< HEAD
 //debugging
 console.log('ENV check', {
   QUT_USERNAME: process.env.QUT_USERNAME,
@@ -13,8 +12,6 @@ console.log('ENV check', {
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-=======
->>>>>>> main
 
 // 1) Hent ufarlige konfiger fra SSM og legg i process.env
 const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
@@ -67,7 +64,6 @@ async function loadParamsFromSSM() {
     fs.mkdirSync(path.join(process.cwd(), dir), { recursive: true });
   });
 
-<<<<<<< HEAD
 //const usersRouter = require('./src/routes/users'); Using cognito now
 const videosRouter = require('./src/routes/videos');
 //Cognito
@@ -76,25 +72,14 @@ const { verifyCognito } = require("./src/auth/cognito");
 
 app.use("/auth", authRouter);
 app.use("/videos", verifyCognito, videosRouter); // protected
-=======
-  // Routere (disse importerer kode som leser process.env -> må komme ETTER loadParamsFromSSM)
-  const usersRouter  = require('./src/routes/users');
-  const videosRouter = require('./src/routes/videos');
->>>>>>> main
 
   // Helse
   app.get('/healthz', (req, res) => res.json({ ok: true }));
 
-<<<<<<< HEAD
 app.get('/healthz', (req, res) => res.json({ ok: true })); //nice to have when starting up the app
 //app.use('/users', usersRouter); using cognito now
 //app.use('/videos', videosRouter); //routes for video-API + login for all video-functions
 app.use('/outputs', express.static(path.join(process.cwd(), 'outputs')));
-=======
-  // API
-  app.use('/users', usersRouter);
-  app.use('/videos', videosRouter);
->>>>>>> main
 
   // Statisk
   app.use('/outputs', express.static(path.join(process.cwd(), 'outputs')));
@@ -105,7 +90,6 @@ app.use('/outputs', express.static(path.join(process.cwd(), 'outputs')));
     res.status(404).json({ error: 'not found' });
   });
 
-<<<<<<< HEAD
 // New errorhandler for debugging
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err); // keep full object
@@ -121,15 +105,7 @@ app.use((err, req, res, next) => {
 
 
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`)); //No need to change this linje when launching on EC2
-=======
-  // Global error handler
-  app.use((err, req, res, next) => {
-    console.error('Unhandled error:', (err && err.stack) || err);
-    if (res.headersSent) return next(err);
-    res.status(500).json({ error: 'internal server error' });
-  });
+ 
 
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, '0.0.0.0', () =>
@@ -138,4 +114,3 @@ app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`)
 })();
 
 
->>>>>>> main

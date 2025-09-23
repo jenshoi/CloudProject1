@@ -32,6 +32,7 @@ services:
       # ⚡ Bruk DynamoDB istedenfor MariaDB
       USE_DYNAMO: "true"
       QUT_USERNAME: "n12541249@qut.edu.au"
+      MEMCACHED_ENDPOINT: "carcounting.km2jzi.cfg.apse2.cache.amazonaws.com:11211"
 
       # fortsatt nødvendig lokalt (til dere flytter til Secrets Manager / Cognito)
       JWT_SECRET: ${JWT_SECRET:-dinHemmeligeNøkkel123}
