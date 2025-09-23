@@ -1,3 +1,4 @@
+require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -49,8 +50,7 @@ exports.analyzeVideo = async (req, res) => {
       inputPath: `s3://${process.env.S3_BUCKET}/${videoKey}`,
       outputPath: `s3://${process.env.S3_BUCKET}/${videoKey}`,
       metadataPath: `s3://${process.env.S3_BUCKET}/metadata/${id}.json`,
-      owner: req.user?.username ?? qutUsername,
-      qutUsername,
+      owner: req.user.username,
     });
 
     // Kjør Python-script
@@ -145,9 +145,14 @@ exports.getResult = async (req, res) => {
     if (!job) return res.status(404).json({ error: "could not find the jobID" });
     if (!owner) return res.status(404).json({ error: "could not find the jobID" });
 
-    if (req.user.role !== 'admin' && owner !== req.user.username) {
+   // if (req.user.role !== 'admin' && owner !== req.user.username) {
+      //return res.status(403).json({ error: "forbidden" });
+    //}
+    //cognito Admin
+    const isAdmin = Array.isArray(req.user?.groups) && req.user.groups.includes('admin');
+    if (!isAdmin && owner !== req.user.username) {
       return res.status(403).json({ error: "forbidden" });
-    }
+}
 
     if (job.status !== 'done') {
       return res.json({ jobID: req.params.id, status: job.status, count: job.count ?? null, video: null, images: [], owner });
@@ -189,7 +194,8 @@ exports.listImages = async (req, res) => {
     if (!job) return res.status(404).json({ error: "cant find job" });
 
     const owner = await getOwner(id, qutUsername);
-    if (req.user.role !== 'admin' && owner !== req.user.username) {
+    const isAdmin = Array.isArray(req.user?.groups) && req.user.groups.includes('admin');
+    if (!isAdmin && owner !== req.user.username) {
       return res.status(403).json({ error: "forbidden" });
     }
 
@@ -237,13 +243,19 @@ exports.streamOutput = async (req, res) => {
 };
 
 // ------------------------------------------------------------
-// LIST ALL
+// LIST MINE
 // ------------------------------------------------------------
 exports.listAll = async (req, res) => {
-  const limit = Math.min(Number(req.query.limit || 50), 200);
-  const offset = Number(req.query.offset || 0);
-  const rows = await listJobs({ limit, offset, qutUsername });
-  return res.json({ items: rows, limit, offset });
+  try {
+    const limit = Math.min(Number(req.query.limit || 50), 200);
+    const offset = Number(req.query.offset || 0);
+    const rows = await listJobs({ limit, offset, qutUsername });
+    const mine = rows.filter(r => r.owner === req.user.username);
+    return res.json({ items: mine, limit, offset });
+  } catch (e) {
+    console.error('listAll failed:', e);
+    return res.status(500).json({ error: 'listAll failed', message: e.message });
+  }
 };
 
 // Helper
@@ -257,7 +269,17 @@ function streamToString(stream) {
 }
 
 
-
+// ------------------------------------------------------------
+// LIST ALL ADMIN
+// ------------------------------------------------------------
+exports.listAllAdmin = async (req, res) => {
+  const isAdmin = req.user?.groups?.includes('admin');
+  if (!isAdmin) return res.status(403).json({ error: 'admin only' });
+  const limit = Math.min(Number(req.query.limit || 50), 200);
+  const offset = Number(req.query.offset || 0);
+  const rows = await listJobs({ limit, offset, qutUsername });
+  return res.json({ items: rows, limit, offset });
+};
 
 
 
