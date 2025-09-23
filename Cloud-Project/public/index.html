@@ -1,35 +1,69 @@
 <!DOCTYPE html>
-<html lang="no">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <title>CarCounter</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    section { margin-bottom: 2rem; }
+    input, button { padding: 0.5rem; margin: 0.25rem 0; }
+    #gallery img { max-width: 320px; margin: 6px; }
+    .muted { color: #666; font-size: 0.95rem; }
+    .err { color: #b00020; white-space: pre-wrap; }
+    .ok { color: #0a7a0a; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 720px) { .row { grid-template-columns: 1fr; } }
+  </style>
 </head>
 <body>
-  <h1>Video-analysis</h1>
+  <h1>Video Analysis</h1>
 
+  <!-- SIGN UP -->
+  <section>
+    <h2>Sign up</h2>
+    <div class="row">
+      <form id="signupForm">
+        <input type="text" id="su_username" placeholder="Username" required>
+        <input type="email" id="su_email" placeholder="Email" required>
+        <input type="password" id="su_password" placeholder="Password" required>
+        <button type="submit">Create account</button>
+      </form>
+
+      <form id="confirmForm">
+        <input type="text" id="cf_username" placeholder="Username to confirm" required>
+        <input type="text" id="cf_code" placeholder="Confirmation code" required>
+        <button type="submit">Confirm account</button>
+      </form>
+    </div>
+    <p id="signupStatus" class="muted"></p>
+  </section>
+
+  <!-- LOGIN -->
   <section>
     <h2>Login</h2>
     <form id="loginForm">
-      <input type="text" id="username" placeholder="Brukernavn" required>
-      <input type="password" id="password" placeholder="Passord" required>
+      <input type="text" id="username" placeholder="Username (or email, per pool settings)" required>
+      <input type="password" id="password" placeholder="Password" required>
       <button type="submit">Login</button>
     </form>
-    <p id="loginStatus"></p>
+    <p id="loginStatus" class="muted"></p>
   </section>
 
+  <!-- UPLOAD -->
   <section>
-    <h2>Load video</h2>
+    <h2>Upload video</h2>
     <form id="uploadForm">
       <input type="file" id="videoFile" accept="video/*" required>
-      <button type="submit">Analayse</button>
+      <button type="submit">Analyze</button>
     </form>
-    <p id="uploadStatus"></p>
+    <p id="uploadStatus" class="muted"></p>
   </section>
 
+  <!-- RESULTS -->
   <section>
     <h2>Results</h2>
     <input type="text" id="jobId" placeholder="Job ID">
-    <button id="checkResult">fetch result </button>
+    <button id="checkResult">Fetch result</button>
     <pre id="resultOutput"></pre>
 
     <video id="videoPlayer" controls style="display:none;width:100%;max-width:720px;"></video>
@@ -37,30 +71,146 @@
   </section>
 
   <script>
-    const API = ""; 
+    // Empty base = same-origin (http://localhost:3000 when served by your app)
+    const API = "";
     let token = null;
 
-    // Login
-    document.getElementById("loginForm").addEventListener("submit", async (e) => {
+    function show(el, msg, ok=false) {
+      el.textContent = msg || "";
+      el.className = ok ? "ok" : (msg ? "err" : "muted");
+    }
+
+    // ---- SIGN UP (/auth/signup) ----
+    document.getElementById("signupForm").addEventListener("submit", async (e) => {
       e.preventDefault();
-      const username = document.getElementById("username").value;
-      const password = document.getElementById("password").value;
+      const username = document.getElementById("su_username").value.trim();
+      const email    = document.getElementById("su_email").value.trim();
+      const password = document.getElementById("su_password").value;
+      const statusEl = document.getElementById("signupStatus");
+      show(statusEl, "Creating account...");
 
-      const res = await fetch(`${API}/users/login`, { //fetch method is the connecting part to backend
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
+      try {
+        const res = await fetch(`${API}/auth/signup`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, email, password }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg = data.message || data.error || `HTTP ${res.status}`;
+          show(statusEl, `Sign up failed: ${msg}`);
+          return;
+        }
 
-      const data = await res.json();
-      if (data.token) {
-        token = data.token;
-        document.getElementById("loginStatus").textContent = "Innlogget!";
-      } else {
-        document.getElementById("loginStatus").textContent = "Feil brukernavn/passord";
+        show(statusEl, "Sign up OK. Check your email for the confirmation code.", true);
+        // prefill confirm form
+        document.getElementById("cf_username").value = username;
+      } catch (err) {
+        show(statusEl, `Network error during sign up: ${err.message}`);
       }
     });
 
+<<<<<<< HEAD
+    // ---- CONFIRM (/auth/confirm) ----
+    document.getElementById("confirmForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = document.getElementById("cf_username").value.trim();
+      const code     = document.getElementById("cf_code").value.trim();
+      const statusEl = document.getElementById("signupStatus");
+      show(statusEl, "Confirming...");
+
+      try {
+        const res = await fetch(`${API}/auth/confirm`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, code }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg = data.message || data.error || `HTTP ${res.status}`;
+          show(statusEl, `Confirm failed: ${msg}`);
+          return;
+        }
+
+        show(statusEl, "Account confirmed. You can now log in.", true);
+        // prefill login user
+        document.getElementById("username").value = username;
+      } catch (err) {
+        show(statusEl, `Network error during confirm: ${err.message}`);
+      }
+    });
+
+    // ---- LOGIN (Cognito via /auth/login) ----
+    document.getElementById("loginForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = document.getElementById("username").value.trim();
+      const password = document.getElementById("password").value;
+      const statusEl = document.getElementById("loginStatus");
+      show(statusEl, "Logging in...");
+
+      try {
+        const res = await fetch(`${API}/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json().catch(() => ({}));
+
+        // Handle challenge surfacing if you implemented that on the server
+        if (!res.ok) {
+          if (data && data.error === "challenge_required") {
+            show(statusEl, `Challenge required: ${data.challenge}. (Complete via the appropriate endpoint.)`);
+            return;
+          }
+          const msg = (data && (data.message || data.error)) || `HTTP ${res.status}`;
+          show(statusEl, `Login failed: ${msg}`);
+          return;
+        }
+
+        token = data.id_token || data.access_token || null;
+        if (!token) {
+          show(statusEl, "Login succeeded but no token was returned. (Challenge or server response issue.)");
+          return;
+        }
+        show(statusEl, "Logged in!", true);
+      } catch (err) {
+        show(statusEl, `Network error during login: ${err.message}`);
+      }
+    });
+
+    // ---- UPLOAD & START ANALYSIS (/videos/analyze, protected) ----
+    document.getElementById("uploadForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const statusEl = document.getElementById("uploadStatus");
+
+      if (!token) { show(statusEl, "Please log in first."); return; }
+
+      const file = document.getElementById("videoFile").files[0];
+      if (!file) { show(statusEl, "Choose a video file first."); return; }
+
+      const form = new FormData();
+      form.append("video", file);
+
+      show(statusEl, "Uploading and starting analysis...");
+
+      try {
+        const res = await fetch(`${API}/videos/analyze`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${token}` },
+          body: form,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg = (data && (data.message || data.error)) || `HTTP ${res.status}`;
+          show(statusEl, `Error: ${msg}`);
+          return;
+        }
+
+        show(statusEl, "Job started: " + JSON.stringify(data), true);
+        if (data.jobId) document.getElementById("jobId").value = data.jobId;
+      } catch (err) {
+        show(statusEl, `Network error: ${err.message}`);
+=======
 
 // Upload video (presigned PUT → S3 → start analyse)
     document.getElementById("uploadForm").addEventListener("submit", async (e) => {
@@ -82,6 +232,7 @@
       if (!presignRes.ok) {
         const t = await presignRes.text();
         return alert("Klarte ikke å få presigned URL: " + t);
+>>>>>>> main
       }
       const { uploadUrl, key } = await presignRes.json();
 
@@ -110,6 +261,13 @@
       if (data.jobId) document.getElementById("jobId").value = data.jobId;
     });
 
+<<<<<<< HEAD
+    // ---- FETCH RESULT (/videos/:id, protected) ----
+    document.getElementById("checkResult").addEventListener("click", async () => {
+      const outEl = document.getElementById("resultOutput");
+      const videoEl = document.getElementById("videoPlayer");
+      const gallery = document.getElementById("gallery");
+=======
 
 document.getElementById("checkResult").addEventListener("click", async () => {
   if (!token) { 
@@ -121,48 +279,54 @@ document.getElementById("checkResult").addEventListener("click", async () => {
     alert("No JobID"); 
     return; 
   }
+>>>>>>> main
 
-  // Hent resultat
-  const res = await fetch(`${API}/videos/result/${id}`, {
-    headers: { "Authorization": `Bearer ${token}` },
-  });
-  const data = await res.json();
-  document.getElementById("resultOutput").textContent = JSON.stringify(data, null, 2);
+      if (!token) { outEl.textContent = "Please log in first."; return; }
 
-  // Vis video dersom ferdig
-  const videoEl = document.getElementById("videoPlayer");
-  if (data.status === "done" && data.video) {
-    videoEl.src = data.video;
-    videoEl.style.display = "block";
-  } else {
-    videoEl.removeAttribute("src");
-    videoEl.style.display = "none";
-  }
+      const id = document.getElementById("jobId").value.trim();
+      if (!id) { outEl.textContent = "No JobID."; return; }
 
-  // Vis snapshots
-  const gallery = document.getElementById("gallery");
-  gallery.innerHTML = "";
+      outEl.textContent = "Fetching result...";
+      videoEl.removeAttribute("src");
+      videoEl.style.display = "none";
+      gallery.innerHTML = "";
 
-if (data.status === "done" && Array.isArray(data.images)) {
-  if (data.images.length === 0) {
-    const p = document.createElement('p');
-    p.textContent = "No snapshots";
-    gallery.appendChild(p);
-  } else {
-    data.images.forEach(url => {
-      const img = document.createElement('img');
-      img.src = url;            // <-- allerede full https-URL (presigned)
-      img.loading = "lazy";
-      img.style.maxWidth = "320px";
-      img.style.margin = "6px";
-      gallery.appendChild(img);
+      try {
+        const res = await fetch(`${API}/videos/${encodeURIComponent(id)}`, {
+          headers: { "Authorization": `Bearer ${token}` },
+        });
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          outEl.textContent = "Error: " + (data.message || data.error || `HTTP ${res.status}`);
+          return;
+        }
+
+        outEl.textContent = JSON.stringify(data, null, 2);
+
+        if (data.status === "done" && data.video) {
+          videoEl.src = data.video;
+          videoEl.style.display = "block";
+        }
+
+        if (data.status === "done" && Array.isArray(data.images)) {
+          if (data.images.length === 0) {
+            const p = document.createElement('p');
+            p.textContent = "No snapshots";
+            gallery.appendChild(p);
+          } else {
+            data.images.forEach(url => {
+              const img = document.createElement('img');
+              img.src = url;  // presigned HTTPS
+              img.loading = "lazy";
+              gallery.appendChild(img);
+            });
+          }
+        }
+      } catch (err) {
+        outEl.textContent = `Network error: ${err.message}`;
+      }
     });
-  }
-}
-});
-
-      
-
   </script>
 </body>
 </html>

@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 // Hardcoded users
 const users = [
   { role: 'admin', username: 'Jens', password: 'JensErDum' },
-  { role: 'user', username: 'Anne', password: 'AnneErPen' },
+  { role: 'user', username: 'Anne', password: 'AnneErDau' },
   { role: 'user', username: 'Orjan', password: 'OrjanStemmerFRP'}
 ];
 

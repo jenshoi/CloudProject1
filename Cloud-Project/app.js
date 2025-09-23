@@ -2,6 +2,16 @@
 // app.js — bootstrapper som laster SSM-verdier før resten starter
 
 require('dotenv').config();
+//debugging
+console.log('ENV check', {
+  QUT_USERNAME: process.env.QUT_USERNAME,
+  COGNITO_USER_POOL_ID: process.env.COGNITO_USER_POOL_ID
+});
+
+//module imports
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
 
 // 1) Hent ufarlige konfiger fra SSM og legg i process.env
 const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
@@ -54,16 +64,22 @@ async function loadParamsFromSSM() {
     fs.mkdirSync(path.join(process.cwd(), dir), { recursive: true });
   });
 
-  // Routere (disse importerer kode som leser process.env -> må komme ETTER loadParamsFromSSM)
-  const usersRouter  = require('./src/routes/users');
-  const videosRouter = require('./src/routes/videos');
+//const usersRouter = require('./src/routes/users'); Using cognito now
+const videosRouter = require('./src/routes/videos');
+//Cognito
+const authRouter = require("./src/routes/auth");
+const { verifyCognito } = require("./src/auth/cognito");
+
+app.use("/auth", authRouter);
+app.use("/videos", verifyCognito, videosRouter); // protected
 
   // Helse
   app.get('/healthz', (req, res) => res.json({ ok: true }));
 
-  // API
-  app.use('/users', usersRouter);
-  app.use('/videos', videosRouter);
+app.get('/healthz', (req, res) => res.json({ ok: true })); //nice to have when starting up the app
+//app.use('/users', usersRouter); using cognito now
+//app.use('/videos', videosRouter); //routes for video-API + login for all video-functions
+app.use('/outputs', express.static(path.join(process.cwd(), 'outputs')));
 
   // Statisk
   app.use('/outputs', express.static(path.join(process.cwd(), 'outputs')));
@@ -74,12 +90,22 @@ async function loadParamsFromSSM() {
     res.status(404).json({ error: 'not found' });
   });
 
-  // Global error handler
-  app.use((err, req, res, next) => {
-    console.error('Unhandled error:', (err && err.stack) || err);
-    if (res.headersSent) return next(err);
-    res.status(500).json({ error: 'internal server error' });
-  });
+// New errorhandler for debugging
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err); // keep full object
+  if (res.headersSent) return next(err);
+  const status =
+    (err.$metadata && err.$metadata.httpStatusCode) ||
+    (err.name === 'NotAuthorizedException' ? 401 :
+     err.name === 'UserNotConfirmedException' ? 403 :
+     err.name === 'UsernameExistsException' ? 409 :
+     400);
+  res.status(status).json({ error: err.name || 'error', message: err.message });
+});
+
+
+
+ 
 
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, '0.0.0.0', () =>

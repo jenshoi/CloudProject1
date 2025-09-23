@@ -1,3 +1,4 @@
+require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -50,8 +51,7 @@ exports.analyzeVideo = async (req, res) => {
       inputPath: `s3://${process.env.S3_BUCKET}/${videoKey}`,
       outputPath: `s3://${process.env.S3_BUCKET}/${videoKey}`,
       metadataPath: `s3://${process.env.S3_BUCKET}/metadata/${id}.json`,
-      owner: req.user?.username ?? qutUsername,
-      qutUsername,
+      owner: req.user.username,
     });
 
     // Kjør Python-script
@@ -289,10 +289,16 @@ exports.getResult = async (req, res) => {
     const job = await getJob(id, qutUsername);
     const owner = await getOwner(id, qutUsername);
     if (!job) return res.status(404).json({ error: "could not find the jobID" });
-    if (req.user.role !== 'admin' && owner !== req.user.username) {
+    if (!owner) return res.status(404).json({ error: "could not find the jobID" });
+
+   // if (req.user.role !== 'admin' && owner !== req.user.username) {
+      //return res.status(403).json({ error: "forbidden" });
+    //}
+    //cognito Admin
+    const isAdmin = Array.isArray(req.user?.groups) && req.user.groups.includes('admin');
+    if (!isAdmin && owner !== req.user.username) {
       return res.status(403).json({ error: "forbidden" });
-    }
-//next validation is chatGPT
+}
 
     if (job.status !== 'done') {
       const payload = { jobID: id, status: job.status, count: job.count ?? null, video: null, images: [], owner };
@@ -351,7 +357,8 @@ exports.listImages = async (req, res) => {
     if (!job) return res.status(404).json({ error: "cant find job" });
 
     const owner = await getOwner(id, qutUsername);
-    if (req.user.role !== 'admin' && owner !== req.user.username) {
+    const isAdmin = Array.isArray(req.user?.groups) && req.user.groups.includes('admin');
+    if (!isAdmin && owner !== req.user.username) {
       return res.status(403).json({ error: "forbidden" });
     }
 
@@ -404,22 +411,27 @@ exports.streamOutput = async (req, res) => {
 };
 
 exports.listAll = async (req, res) => {
-  const limit = Math.min(Number(req.query.limit || 50), 200);
-  const offset = Number(req.query.offset || 0);
+  try{
+    const limit = Math.min(Number(req.query.limit || 50), 200);
+    const offset = Number(req.query.offset || 0);
 
-  const ck = `list:${limit}:${offset}`;
-  const cached = await getAsync(ck);      
-  if (cached) {                           
-    console.log('[cache] HIT', ck);       
-    return res.json(JSON.parse(cached));  
-  }                                       
-  console.log('[cache] MISS', ck);        
+    const ck = `list:${limit}:${offset}`;
+    const cached = await getAsync(ck);      
+    if (cached) {                           
+      console.log('[cache] HIT', ck);       
+      return res.json(JSON.parse(cached));  
+    }                                       
+    console.log('[cache] MISS', ck);        
 
-  const rows = await listJobs({ limit, offset, qutUsername });
-  const out = { items: rows, limit, offset }; 
-  await setAsync(ck, JSON.stringify(out), 60); 
-  return res.json(out);
-
+    const rows = await listJobs({ limit, offset, qutUsername });
+    const out = { items: rows, limit, offset }; 
+    await setAsync(ck, JSON.stringify(out), 60); 
+    return res.json(out);
+  }
+  catch (e) {
+    console.error('listAll failed:', e);
+    return res.status(500).json({ error: 'listAll failed', message: e.message });
+  }
 };
 
 // Helper
@@ -447,7 +459,17 @@ function streamToFile(stream, filePath) {
 
 
 
-
+// ------------------------------------------------------------
+// LIST ALL ADMIN
+// ------------------------------------------------------------
+exports.listAllAdmin = async (req, res) => {
+  const isAdmin = req.user?.groups?.includes('admin');
+  if (!isAdmin) return res.status(403).json({ error: 'admin only' });
+  const limit = Math.min(Number(req.query.limit || 50), 200);
+  const offset = Number(req.query.offset || 0);
+  const rows = await listJobs({ limit, offset, qutUsername });
+  return res.json({ items: rows, limit, offset });
+};
 
 
 
