@@ -21,6 +21,9 @@ router.get('/images/:id', authMiddleware, controller.listImages);
 router.post('/login', login); //sender login videre
 router.get('/list', authMiddleware, requireAdmin, controller.listAll)
 
+router.post('/presign-upload', authMiddleware, controller.presignUpload);
+router.post('/analyze-from-s3', authMiddleware, controller.analyzeFromS3);
+
 
 module.exports = router; //eksporter
 

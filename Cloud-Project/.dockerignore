@@ -10,4 +10,10 @@ outputs
 *.avi
 *.mov
 *.mkv
-*.json
+node_modules
+npm-debug.log*
+.env
+.env.*
+dist
+build
+coverage
