@@ -1,6 +1,6 @@
-version: "3.9"
 
 services:
+  # MariaDB er her fortsatt, men appen vil ikke bruke den når USE_DYNAMO=true
   db:
     image: mariadb:11
     container_name: videos-db
@@ -19,28 +19,30 @@ services:
       retries: 10
 
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: cloud-project-app
     restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
+    # ikke nødvendig å vente på db, siden DynamoDB brukes
+    env_file:
+      - .env
     environment:
       PORT: ${PORT:-3000}
-      DB_HOST: db
-      DB_USER: ${DB_USER:-user}
-      DB_PASSWORD: ${DB_PASSWORD:-pass}
-      DB_NAME: ${DB_NAME:-videosdb}
+      # ⚡ Bruk DynamoDB istedenfor MariaDB
+      USE_DYNAMO: "true"
+      QUT_USERNAME: "n12541249@qut.edu.au"
+
+      # fortsatt nødvendig lokalt (til dere flytter til Secrets Manager / Cognito)
       JWT_SECRET: ${JWT_SECRET:-dinHemmeligeNøkkel123}
       YOLO_VERBOSE: "False"
     ports:
-      - "${PORT:-3000}:3000"
+      - "3000:3000"   # bytt til "80:3000" hvis du vil bruke port 80 eksternt
     volumes:
       - ./public:/app/public
       - ./uploads:/app/uploads
       - ./outputs:/app/outputs
       - yolo_cache:/root/.cache/ultralytics
-    # gi containeren litt mer delte minne (occasionally nyttig med opencv/ffmpeg)
     shm_size: "512m"
 
 volumes:

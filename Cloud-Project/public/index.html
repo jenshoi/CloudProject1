@@ -61,30 +61,55 @@
       }
     });
 
-    // Upload video
+
+// Upload video (presigned PUT → S3 → start analyse)
     document.getElementById("uploadForm").addEventListener("submit", async (e) => {
       e.preventDefault();
-      if (!token) {
-        alert("Du må logge inn først!");
-        return;
-      }
+      if (!token) return alert("Du må logge inn først!");
 
       const file = document.getElementById("videoFile").files[0];
-      const form = new FormData();
-      form.append("video", file);
+      if (!file) return alert("Velg en fil");
 
-      const res = await fetch(`${API}/videos/analyze`, { //fetch method is the connecting part to backend
+  // 1) be om presigned PUT
+      const presignRes = await fetch(`${API}/videos/presign-upload`, {
         method: "POST",
-        headers: { "Authorization": `Bearer ${token}` },
-        body: form,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ filename: file.name, contentType: file.type || "video/mp4" })
       });
-
-      const data = await res.json();
-      document.getElementById("uploadStatus").textContent = "Job startet: " + JSON.stringify(data);
-      if (data.jobId) {
-        document.getElementById("jobId").value = data.jobId;
+      if (!presignRes.ok) {
+        const t = await presignRes.text();
+        return alert("Klarte ikke å få presigned URL: " + t);
       }
+      const { uploadUrl, key } = await presignRes.json();
+
+      // 2) last filen direkte til S3
+      const putRes = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "video/mp4" },
+        body: file
+      });
+      if (!putRes.ok) {
+        const t = await putRes.text();
+        return alert("Opplasting til S3 feilet: " + t);
+      }
+
+      // 3) start analyse fra S3
+      const startRes = await fetch(`${API}/videos/analyze-from-s3`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ key })
+      });
+      const data = await startRes.json();
+      document.getElementById("uploadStatus").textContent = "Job startet: " + JSON.stringify(data);
+      if (data.jobId) document.getElementById("jobId").value = data.jobId;
     });
+
 
 document.getElementById("checkResult").addEventListener("click", async () => {
   if (!token) { 

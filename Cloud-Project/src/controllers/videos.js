@@ -3,8 +3,10 @@ const path = require('path');
 const os = require('os');
 const fsp = require('fs/promises');
 const { spawn } = require('child_process');
+const crypto = require('crypto');
 
-const { uploadFile, getSignedUrlForS3Url, parseS3Url, s3 } = require('../aws/s3');
+const { uploadFile, getSignedUrlForS3Url, parseS3Url, s3, getPresignedPutUrl } = require('../aws/s3');
+
 const { GetObjectCommand } = require('@aws-sdk/client-s3');
 
 const qutUsername = process.env.QUT_USERNAME;
@@ -18,9 +20,7 @@ const model = useDynamo
   : require('../models/doneVideos'); // MariaDB fallback
 const { createJob, updateJobDone, updateJobError, getJob, getOwner, listJobs } = model;
 
-// ------------------------------------------------------------
-// ANALYZE VIDEO
-// ------------------------------------------------------------
+
 exports.analyzeVideo = async (req, res) => {
   try {
     if (!req.file) {
@@ -134,9 +134,131 @@ exports.analyzeVideo = async (req, res) => {
   }
 };
 
-// ------------------------------------------------------------
-// GET RESULT
-// ------------------------------------------------------------
+exports.presignUpload = async (req, res) => {
+  try {
+    const { filename, contentType } = req.body || {};
+    if (!filename || !contentType) {
+      return res.status(400).json({ error: "filename and contentType required" });
+    }
+
+    const safeName = path.basename(filename).replace(/[^\w.\-]+/g, '_');
+    const idPart = Date.now().toString() + '-' + crypto.randomBytes(3).toString('hex');
+    const key = `uploads/${req.user?.username || 'anon'}/${idPart}/${safeName}`;
+
+    const uploadUrl = await getPresignedPutUrl(key, contentType, 600); // 10 min
+    return res.json({ key, uploadUrl, expiresIn: 600, bucket: process.env.S3_BUCKET });
+  } catch (err) {
+    console.error('presignUpload error:', err);
+    return res.status(500).json({ error: "internal error in presignUpload" });
+  }
+};
+
+// --------------- ANALYZE FROM S3 ----------------
+exports.analyzeFromS3 = async (req, res) => {
+  try {
+    const { key } = req.body || {};
+    if (!key) return res.status(400).json({ error: "key is required" });
+
+    const bucket = process.env.S3_BUCKET;
+    const id = Date.now().toString();
+
+    // controllers/videos.js (i analyzeFromS3)
+    const owner = req.user?.username || 'anon';
+    const allowedPrefix = `uploads/${owner}/`;
+    if (!key.startsWith(allowedPrefix)) {
+      return res.status(403).json({ error: "forbidden: invalid key prefix" });
+    }
+
+    // midlertidige paths
+    const tmpJobDir = path.join(os.tmpdir(), `job-${id}`);
+    const tmpInputPath = path.join(tmpJobDir, 'input.mp4');
+    const tmpFramesDir = path.join(tmpJobDir, 'frames');
+    const tmpMetadataPath = path.join(tmpJobDir, 'metadata.json');
+    await fsp.mkdir(tmpFramesDir, { recursive: true });
+
+    // last ned S3-objekt til fil
+    const cmd = new GetObjectCommand({ Bucket: bucket, Key: key });
+    const resp = await s3.send(cmd);
+    await streamToFile(resp.Body, tmpInputPath);
+
+    // registrer jobben (samme felt som analyzeVideo)
+    await createJob({
+      id,
+      filename: path.basename(key),
+      inputPath: `s3://${bucket}/${key}`,
+      outputPath: `s3://${bucket}/${key}`,
+      metadataPath: `s3://${bucket}/metadata/${id}.json`,
+      owner: req.user?.username ?? qutUsername,
+      qutUsername,
+    });
+
+    // kjør Python
+    const PYTHON = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
+    const scriptPath = path.join(process.cwd(), 'scripts', 'carCounting.py');
+
+    const pythonFile = spawn(
+      PYTHON,
+      [scriptPath, '--input', tmpInputPath, '--meta', tmpMetadataPath, '--frames-dir', tmpFramesDir],
+      { cwd: process.cwd() }
+    );
+
+    [{ from: pythonFile.stdout, to: process.stdout }, { from: pythonFile.stderr, to: process.stderr }]
+      .forEach(({ from, to }) => from.on('data', (data) => to.write(data)));
+
+    pythonFile.on('close', async (code) => {
+      try {
+        if (code !== 0) {
+          await updateJobError({ id, message: `analysis failed errorcode: ${code}`, qutUsername });
+          return;
+        }
+
+        // metadata fra Python
+        let meta = {};
+        try { meta = JSON.parse(await fsp.readFile(tmpMetadataPath, 'utf8')); } catch {}
+
+        // last opp snapshots
+        let s3ImageKeys = [];
+        try {
+          const files = await fsp.readdir(tmpFramesDir);
+          for (const fname of files) {
+            const abs = path.join(tmpFramesDir, fname);
+            const body = await fsp.readFile(abs);
+            const frameKey = `frames/${id}/${fname}`;
+            await uploadFile(frameKey, body, 'image/jpeg');
+            s3ImageKeys.push(frameKey);
+          }
+        } catch {}
+
+        // lagre metadata til S3
+        const s3Meta = {
+          ...meta,
+          jobId: id,
+          video: `s3://${bucket}/${key}`,
+          images: s3ImageKeys.map(k => `s3://${bucket}/${k}`),
+        };
+        await uploadFile(`metadata/${id}.json`, Buffer.from(JSON.stringify(s3Meta, null, 2), 'utf8'), 'application/json');
+
+        const safeCount = Number.isFinite(meta.count)
+          ? meta.count
+          : (meta.by_class ? Object.values(meta.by_class).reduce((a,b)=> a + (b|0), 0) : null);
+
+        await updateJobDone({ id, count: safeCount ?? null, qutUsername });
+
+        try { await fsp.rm(tmpJobDir, { recursive: true, force: true }); } catch {}
+      } catch (e) {
+        console.error('post-processing failed:', e);
+        await updateJobError({ id, message: 'post-processing failed', qutUsername });
+      }
+    });
+
+    return res.status(202).json({ jobId: id, status: 'running' });
+  } catch (err) {
+    console.error('analyzeFromS3 error:', err);
+    return res.status(500).json({ error: "internal error in analyzeFromS3" });
+  }
+};
+
+
 exports.getResult = async (req, res) => {
   try {
     const job = await getJob(req.params.id, qutUsername);
@@ -255,6 +377,20 @@ function streamToString(stream) {
     stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
   });
 }
+
+function streamToFile(stream, filePath) {
+  return new Promise((resolve, reject) => {
+    fs.mkdir(path.dirname(filePath), { recursive: true }, (mkErr) => {
+      if (mkErr) return reject(mkErr);
+      const out = fs.createWriteStream(filePath);
+      stream.pipe(out);
+      stream.on('error', reject);
+      out.on('error', reject);
+      out.on('finish', resolve);
+    });
+  });
+}
+
 
 
 

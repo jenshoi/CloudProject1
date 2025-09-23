@@ -4,7 +4,6 @@ const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
 const REGION = process.env.AWS_REGION;
 const BUCKET = process.env.S3_BUCKET;
-
 const s3 = new S3Client({ region: REGION });
 
 function parseS3Url(s3url) {
@@ -32,8 +31,12 @@ async function getSignedUrlForS3Url(s3url, expiresIn = 3600) {
   const cmd = new GetObjectCommand({ Bucket: bucket, Key: key });
   return getSignedUrl(s3, cmd, { expiresIn });
 }
+async function getPresignedPutUrl(key, contentType = "application/octet-stream", expiresIn = 600) {
+  const cmd = new PutObjectCommand({ Bucket: BUCKET, Key: key, ContentType: contentType });
+  return getSignedUrl(s3, cmd, { expiresIn });
+}
 
-module.exports = { s3, uploadFile, getSignedFileUrlByKey, getSignedUrlForS3Url, parseS3Url };
+module.exports = { s3, uploadFile, getSignedFileUrlByKey, getSignedUrlForS3Url, parseS3Url, getPresignedPutUrl };
 
 /* (fra chat)
 En S3-helper som kapsler inn S3-klienten og gir deg enkle funksjoner:
