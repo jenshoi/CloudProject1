@@ -32,6 +32,13 @@ EXPOSE 3000
 CMD ["node", "app.js"]
 
 
+#Debugging for Ørjan
+COPY package*.json ./
+RUN ls -l /app
+RUN cat package.json
+RUN npm install --omit=dev
+
+
 
 
 
