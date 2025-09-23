@@ -23,6 +23,9 @@ router.get('/', controller.listAll)
 
 //For later: router.get('/admin', requireGroup('admin'), ctrl.listAllAdmin);
 
+router.post('/presign-upload', authMiddleware, controller.presignUpload);
+router.post('/analyze-from-s3', authMiddleware, controller.analyzeFromS3);
+
 
 module.exports = router; //eksporter
 

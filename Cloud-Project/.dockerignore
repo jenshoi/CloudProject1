@@ -6,7 +6,21 @@ docker-compose.yml
 .DS_Store
 uploads
 outputs
+<<<<<<< HEAD
 .mp4
 .avi
 .mov
 .mkv
+=======
+*.mp4
+*.avi
+*.mov
+*.mkv
+node_modules
+npm-debug.log*
+.env
+.env.*
+dist
+build
+coverage
+>>>>>>> main

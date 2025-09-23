@@ -9,7 +9,7 @@ const {
   QueryCommand,
 } = require("@aws-sdk/lib-dynamodb");
 
-const REGION = process.env.AWS_REGION || "eu-north-1";
+const REGION = process.env.AWS_REGION || "ap-southeast-2";
 const TABLE = process.env.DYNAMO_TABLE || "VideoJobs";
 
 // Du kan lage tabellen senere. Koden kan eksistere uten at tabellen finnes ennå.

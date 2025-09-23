@@ -110,6 +110,7 @@
       }
     });
 
+<<<<<<< HEAD
     // ---- CONFIRM (/auth/confirm) ----
     document.getElementById("confirmForm").addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -209,14 +210,76 @@
         if (data.jobId) document.getElementById("jobId").value = data.jobId;
       } catch (err) {
         show(statusEl, `Network error: ${err.message}`);
+=======
+
+// Upload video (presigned PUT → S3 → start analyse)
+    document.getElementById("uploadForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!token) return alert("Du må logge inn først!");
+
+      const file = document.getElementById("videoFile").files[0];
+      if (!file) return alert("Velg en fil");
+
+  // 1) be om presigned PUT
+      const presignRes = await fetch(`${API}/videos/presign-upload`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ filename: file.name, contentType: file.type || "video/mp4" })
+      });
+      if (!presignRes.ok) {
+        const t = await presignRes.text();
+        return alert("Klarte ikke å få presigned URL: " + t);
+>>>>>>> main
       }
+      const { uploadUrl, key } = await presignRes.json();
+
+      // 2) last filen direkte til S3
+      const putRes = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "video/mp4" },
+        body: file
+      });
+      if (!putRes.ok) {
+        const t = await putRes.text();
+        return alert("Opplasting til S3 feilet: " + t);
+      }
+
+      // 3) start analyse fra S3
+      const startRes = await fetch(`${API}/videos/analyze-from-s3`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ key })
+      });
+      const data = await startRes.json();
+      document.getElementById("uploadStatus").textContent = "Job startet: " + JSON.stringify(data);
+      if (data.jobId) document.getElementById("jobId").value = data.jobId;
     });
 
+<<<<<<< HEAD
     // ---- FETCH RESULT (/videos/:id, protected) ----
     document.getElementById("checkResult").addEventListener("click", async () => {
       const outEl = document.getElementById("resultOutput");
       const videoEl = document.getElementById("videoPlayer");
       const gallery = document.getElementById("gallery");
+=======
+
+document.getElementById("checkResult").addEventListener("click", async () => {
+  if (!token) { 
+    alert("Du må logge inn først!"); 
+    return; 
+  }
+  const id = document.getElementById("jobId").value;
+  if (!id) { 
+    alert("No JobID"); 
+    return; 
+  }
+>>>>>>> main
 
       if (!token) { outEl.textContent = "Please log in first."; return; }
 
