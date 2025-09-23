@@ -110,7 +110,6 @@
       }
     });
 
-<<<<<<< HEAD
     // ---- CONFIRM (/auth/confirm) ----
     document.getElementById("confirmForm").addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -182,27 +181,56 @@
     document.getElementById("uploadForm").addEventListener("submit", async (e) => {
       e.preventDefault();
       const statusEl = document.getElementById("uploadStatus");
-
       if (!token) { show(statusEl, "Please log in first."); return; }
 
       const file = document.getElementById("videoFile").files[0];
       if (!file) { show(statusEl, "Choose a video file first."); return; }
 
-      const form = new FormData();
-      form.append("video", file);
-
-      show(statusEl, "Uploading and starting analysis...");
+      show(statusEl, "Requesting presigned URL...");
 
       try {
-        const res = await fetch(`${API}/videos/analyze`, {
+        // 1) presigned PUT
+        const presignRes = await fetch(`${API}/videos/presign-upload`, {
           method: "POST",
-          headers: { "Authorization": `Bearer ${token}` },
-          body: form,
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify({ filename: file.name, contentType: file.type || "video/mp4" })
         });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const msg = (data && (data.message || data.error)) || `HTTP ${res.status}`;
-          show(statusEl, `Error: ${msg}`);
+        const presignData = await presignRes.json().catch(() => ({}));
+        if (!presignRes.ok) {
+          const msg = presignData.message || presignData.error || `HTTP ${presignRes.status}`;
+          show(statusEl, "Could not get presigned URL: " + msg);
+          return;
+        }
+
+        // 2) upload to S3
+        const putRes = await fetch(presignData.uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": file.type || "video/mp4" },
+          body: file
+        });
+        if (!putRes.ok) {
+          const t = await putRes.text();
+          show(statusEl, "Upload to S3 failed: " + t);
+          return;
+        }
+
+        // 3) start analysis
+        show(statusEl, "Starting analysis...");
+        const startRes = await fetch(`${API}/videos/analyze-from-s3`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify({ key: presignData.key })
+        });
+        const data = await startRes.json().catch(() => ({}));
+        if (!startRes.ok) {
+          const msg = data.message || data.error || `HTTP ${startRes.status}`;
+          show(statusEl, "Analyze error: " + msg);
           return;
         }
 
@@ -210,76 +238,15 @@
         if (data.jobId) document.getElementById("jobId").value = data.jobId;
       } catch (err) {
         show(statusEl, `Network error: ${err.message}`);
-=======
-
-// Upload video (presigned PUT → S3 → start analyse)
-    document.getElementById("uploadForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      if (!token) return alert("Du må logge inn først!");
-
-      const file = document.getElementById("videoFile").files[0];
-      if (!file) return alert("Velg en fil");
-
-  // 1) be om presigned PUT
-      const presignRes = await fetch(`${API}/videos/presign-upload`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify({ filename: file.name, contentType: file.type || "video/mp4" })
-      });
-      if (!presignRes.ok) {
-        const t = await presignRes.text();
-        return alert("Klarte ikke å få presigned URL: " + t);
->>>>>>> main
       }
-      const { uploadUrl, key } = await presignRes.json();
-
-      // 2) last filen direkte til S3
-      const putRes = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type || "video/mp4" },
-        body: file
-      });
-      if (!putRes.ok) {
-        const t = await putRes.text();
-        return alert("Opplasting til S3 feilet: " + t);
-      }
-
-      // 3) start analyse fra S3
-      const startRes = await fetch(`${API}/videos/analyze-from-s3`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify({ key })
-      });
-      const data = await startRes.json();
-      document.getElementById("uploadStatus").textContent = "Job startet: " + JSON.stringify(data);
-      if (data.jobId) document.getElementById("jobId").value = data.jobId;
     });
 
-<<<<<<< HEAD
+
     // ---- FETCH RESULT (/videos/:id, protected) ----
     document.getElementById("checkResult").addEventListener("click", async () => {
       const outEl = document.getElementById("resultOutput");
       const videoEl = document.getElementById("videoPlayer");
       const gallery = document.getElementById("gallery");
-=======
-
-document.getElementById("checkResult").addEventListener("click", async () => {
-  if (!token) { 
-    alert("Du må logge inn først!"); 
-    return; 
-  }
-  const id = document.getElementById("jobId").value;
-  if (!id) { 
-    alert("No JobID"); 
-    return; 
-  }
->>>>>>> main
 
       if (!token) { outEl.textContent = "Please log in first."; return; }
 

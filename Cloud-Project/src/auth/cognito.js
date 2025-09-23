@@ -85,6 +85,9 @@ async function loginHandler(req, res, next) {
     if (sh) params.AuthParameters.SECRET_HASH = sh;
 
     const out = await cognito.send(new InitiateAuthCommand(params));
+    console.log("[DEBUG] Cognito login raw response:", JSON.stringify(out, null, 2));
+
+
     const r = out.AuthenticationResult || {};
     // Return tokens to client; client sends ID/Access token back on future API calls
     res.json({

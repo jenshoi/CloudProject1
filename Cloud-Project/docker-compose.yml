@@ -28,15 +28,11 @@ services:
     env_file:
       - .env
     environment:
+      CARCOUNTER_SECRET_NAME: "/n12541249/secrets"
       PORT: ${PORT:-3000}
-      # ⚡ Bruk DynamoDB istedenfor MariaDB
       USE_DYNAMO: "true"
       QUT_USERNAME: "n12541249@qut.edu.au"
       MEMCACHED_ENDPOINT: "carcounting.km2jzi.cfg.apse2.cache.amazonaws.com:11211"
-
-      # fortsatt nødvendig lokalt (til dere flytter til Secrets Manager / Cognito)
-      JWT_SECRET: ${JWT_SECRET:-dinHemmeligeNøkkel123}
-      YOLO_VERBOSE: "False"
     ports:
       - "3000:3000"   # bytt til "80:3000" hvis du vil bruke port 80 eksternt
     volumes:

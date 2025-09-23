@@ -133,7 +133,6 @@ def main():
                         snap_idx +=1
                         fname = f"frame_{frame_idx:06d}.jpg"
                         fpath = os.path.join(frames_dir, fname)
-                        cv2.imwrite(fpath, snap)
                         ok = cv2.imwrite(fpath, snap) # writing to file
                         if ok: # this part i chatGPT
                             saved_images.append(os.path.join(frames_dir, fname))

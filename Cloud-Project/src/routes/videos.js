@@ -5,12 +5,7 @@ const router = express.Router(); //video-related routes in same file
 const controller = require('../controllers/videos'); //hvor vi definerer hva som skjer når en route kalles
 const upload = require('../middleware/multer'); // multer middleware som håndterer opplastingen i selve videofilen
 
-//Replaced by cognito
-//const { login } = require('../auth/users'); //users
-//const { requireAdmin } = require('../auth/users'); //Must be admin
-//const { authMiddleware } = require('../auth/users'); //users
 
-//sjekker innlogging + leser filen i multer + Sender videoen videre til.py filen.
 
 //Changed
 router.post('/analyze', upload.single('video'), controller.analyzeVideo);  //have to be logged in to analyze video
@@ -23,8 +18,8 @@ router.get('/', controller.listAll)
 
 //For later: router.get('/admin', requireGroup('admin'), ctrl.listAllAdmin);
 
-router.post('/presign-upload', authMiddleware, controller.presignUpload);
-router.post('/analyze-from-s3', authMiddleware, controller.analyzeFromS3);
+router.post('/presign-upload', controller.presignUpload);
+router.post('/analyze-from-s3', controller.analyzeFromS3);
 
 
 module.exports = router; //eksporter
