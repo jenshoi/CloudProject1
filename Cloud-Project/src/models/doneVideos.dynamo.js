@@ -106,6 +106,35 @@ async function listJobs({ limit = 50, qutUsername } = {}) {
   return out.Items || [];
 }
 
+//For admin filtering
+
+// LIST with optional filters
+async function listJobs({ limit = 50, qutUsername, owner, status, from, to } = {}) {
+  const qut = requireQutUsername(qutUsername);
+
+  // Build FilterExpression dynamically
+  const names = { "#pk": "qut-username" };
+  const values = { ":pk": qut };
+  let FilterExpression = [];
+  if (owner)  { names["#owner"] = "owner";   values[":owner"]  = owner;  FilterExpression.push("#owner = :owner"); }
+  if (status) { names["#status"] = "status"; values[":status"] = status; FilterExpression.push("#status = :status"); }
+  if (from)   { names["#created_at"] = "created_at"; values[":from"] = from; FilterExpression.push("#created_at >= :from"); }
+  if (to)     { names["#created_at"] = "created_at"; values[":to"]   = to;   FilterExpression.push("#created_at <  :to");   }
+
+  const params = {
+    TableName: TABLE,
+    KeyConditionExpression: "#pk = :pk",
+    ExpressionAttributeNames: names,
+    ExpressionAttributeValues: values,
+    Limit: Number(limit),
+    ScanIndexForward: false,
+  };
+  if (FilterExpression.length) params.FilterExpression = FilterExpression.join(" AND ");
+
+  const out = await doc.send(new QueryCommand(params));
+  return out.Items || [];
+}
+
 module.exports = { createJob, updateJobDone, updateJobError, getJob, getOwner, listJobs };
 
 

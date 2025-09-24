@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>CarCounter</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
@@ -13,56 +13,111 @@
     .ok { color: #0a7a0a; }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
     @media (max-width: 720px) { .row { grid-template-columns: 1fr; } }
+    .hidden { display:none; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; }
+    .qr { max-width: 220px; border: 1px solid #eee; border-radius: 8px; padding: 6px; background: #fff; }
   </style>
 </head>
 <body>
   <h1>Video Analysis</h1>
 
   <!-- SIGN UP -->
-  <section>
+  <section class="card">
     <h2>Sign up</h2>
     <div class="row">
       <form id="signupForm">
-        <input type="text" id="su_username" placeholder="Username" required>
-        <input type="email" id="su_email" placeholder="Email" required>
-        <input type="password" id="su_password" placeholder="Password" required>
+        <input type="text" id="su_username" placeholder="Username" required />
+        <input type="email" id="su_email" placeholder="Email" required />
+        <input type="password" id="su_password" placeholder="Password" required />
         <button type="submit">Create account</button>
       </form>
 
       <form id="confirmForm">
-        <input type="text" id="cf_username" placeholder="Username to confirm" required>
-        <input type="text" id="cf_code" placeholder="Confirmation code" required>
+        <input type="text" id="cf_username" placeholder="Username to confirm" required />
+        <input type="text" id="cf_code" placeholder="Confirmation code" required />
         <button type="submit">Confirm account</button>
       </form>
     </div>
     <p id="signupStatus" class="muted"></p>
   </section>
 
-  <!-- LOGIN -->
-  <section>
+  <!-- LOGIN (+ MFA challenge) -->
+  <section class="card">
     <h2>Login</h2>
     <form id="loginForm">
-      <input type="text" id="username" placeholder="Username (or email, per pool settings)" required>
-      <input type="password" id="password" placeholder="Password" required>
+      <input type="text" id="username" placeholder="Username (or email)" required />
+      <input type="password" id="password" placeholder="Password" required />
       <button type="submit">Login</button>
     </form>
+    <button type="button" id="googleBtn">Sign in with Google</button>
     <p id="loginStatus" class="muted"></p>
+
+  <!-- Admin section-->
+    <section id="adminPanel" class="card hidden">
+  <h2>Admin</h2>
+  <div>
+    <input id="admOwner" placeholder="Filter by owner (optional)" />
+    <select id="admStatus">
+      <option value="">Any status</option>
+      <option>running</option>
+      <option>done</option>
+      <option>error</option>
+    </select>
+    <input id="admFrom" type="date" />
+    <input id="admTo" type="date" />
+    <button id="loadAllJobsBtn">Search</button>
+  </div>
+  <pre id="adminOut"></pre>
+</section>
+
+    <!-- MFA challenge (TOTP) -->
+    <div id="mfaChallenge" class="hidden">
+      <h3>MFA required</h3>
+      <p class="muted" id="mfaChallengeInfo">Enter the 6-digit code from your authenticator app.</p>
+      <input type="text" id="mfaCode" placeholder="123456" pattern="\\d{6}" />
+      <button id="mfaSubmit">Verify code</button>
+      <p id="mfaStatus" class="muted"></p>
+    </div>
+  </section>
+
+  <!-- AUTHENTICATOR (TOTP) SETUP -->
+  <section class="card">
+    <h2>Authenticator (App-based MFA)</h2>
+    <p class="muted">Use Microsoft Authenticator, Google Authenticator, Authy, 1Password, etc.</p>
+
+    <div id="mfaSetupLoggedOut" class="muted">Login to enable MFA.</div>
+
+    <div id="mfaSetup" class="hidden">
+      <button id="mfaAssociateBtn">Enable Authenticator MFA</button>
+      <div id="mfaQrBlock" class="hidden">
+        <h3>Scan this QR in your Authenticator</h3>
+        <img id="mfaQrImg" alt="QR Code" class="qr" />
+        <p>Or add manually with this secret:</p>
+        <code id="mfaSecretText"></code>
+        <p class="muted" id="mfaOtpUri"></p>
+        <div>
+          <input type="text" id="mfaVerifyCode" placeholder="Enter 6-digit code" />
+          <button id="mfaVerifyBtn">Verify code</button>
+        </div>
+      </div>
+      <p id="mfaSetupStatus" class="muted"></p>
+    </div>
   </section>
 
   <!-- UPLOAD -->
-  <section>
+  <section class="card">
     <h2>Upload video</h2>
     <form id="uploadForm">
-      <input type="file" id="videoFile" accept="video/*" required>
+      <input type="file" id="videoFile" accept="video/*" required />
       <button type="submit">Analyze</button>
     </form>
     <p id="uploadStatus" class="muted"></p>
   </section>
 
   <!-- RESULTS -->
-  <section>
+  <section class="card">
     <h2>Results</h2>
-    <input type="text" id="jobId" placeholder="Job ID">
+    <input type="text" id="jobId" placeholder="Job ID" />
     <button id="checkResult">Fetch result</button>
     <pre id="resultOutput"></pre>
 
@@ -71,23 +126,28 @@
   </section>
 
   <script>
-    // Empty base = same-origin (http://localhost:3000 when served by your app)
+    // Same-origin (served by your Node app)
     const API = "";
-    let token = null;
+    let idToken = null;
+    let accessToken = null;
+    let usernameMemo = null;
 
-    function show(el, msg, ok=false) {
-      el.textContent = msg || "";
-      el.className = ok ? "ok" : (msg ? "err" : "muted");
-    }
+    // For MFA challenge flow
+    let pendingSession = null;
+    let pendingChallenge = null;
 
-    // ---- SIGN UP (/auth/signup) ----
-    document.getElementById("signupForm").addEventListener("submit", async (e) => {
+    const $ = (id) => document.getElementById(id);
+    const show = (el, msg, ok=false) => { el.textContent = msg || ""; el.className = ok ? "ok" : (msg ? "err" : "muted"); };
+    const unhide = (el) => el.classList.remove("hidden");
+    const hide = (el) => el.classList.add("hidden");
+
+    // ---------- SIGN UP ----------
+    $("signupForm").addEventListener("submit", async (e) => {
       e.preventDefault();
-      const username = document.getElementById("su_username").value.trim();
-      const email    = document.getElementById("su_email").value.trim();
-      const password = document.getElementById("su_password").value;
-      const statusEl = document.getElementById("signupStatus");
-      show(statusEl, "Creating account...");
+      const username = $("su_username").value.trim();
+      const email = $("su_email").value.trim();
+      const password = $("su_password").value;
+      show($("signupStatus"), "Creating account...");
 
       try {
         const res = await fetch(`${API}/auth/signup`, {
@@ -96,27 +156,20 @@
           body: JSON.stringify({ username, email, password }),
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const msg = data.message || data.error || `HTTP ${res.status}`;
-          show(statusEl, `Sign up failed: ${msg}`);
-          return;
-        }
-
-        show(statusEl, "Sign up OK. Check your email for the confirmation code.", true);
-        // prefill confirm form
-        document.getElementById("cf_username").value = username;
+        if (!res.ok) return show($("signupStatus"), data.message || data.error || `HTTP ${res.status}`);
+        show($("signupStatus"), "Sign up OK. Check your email for the confirmation code.", true);
+        $("cf_username").value = username;
       } catch (err) {
-        show(statusEl, `Network error during sign up: ${err.message}`);
+        show($("signupStatus"), `Network error: ${err.message}`);
       }
     });
 
-    // ---- CONFIRM (/auth/confirm) ----
-    document.getElementById("confirmForm").addEventListener("submit", async (e) => {
+    // ---------- CONFIRM ----------
+    $("confirmForm").addEventListener("submit", async (e) => {
       e.preventDefault();
-      const username = document.getElementById("cf_username").value.trim();
-      const code     = document.getElementById("cf_code").value.trim();
-      const statusEl = document.getElementById("signupStatus");
-      show(statusEl, "Confirming...");
+      const username = $("cf_username").value.trim();
+      const code = $("cf_code").value.trim();
+      show($("signupStatus"), "Confirming...");
 
       try {
         const res = await fetch(`${API}/auth/confirm`, {
@@ -125,27 +178,25 @@
           body: JSON.stringify({ username, code }),
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const msg = data.message || data.error || `HTTP ${res.status}`;
-          show(statusEl, `Confirm failed: ${msg}`);
-          return;
-        }
-
-        show(statusEl, "Account confirmed. You can now log in.", true);
-        // prefill login user
-        document.getElementById("username").value = username;
+        if (!res.ok) return show($("signupStatus"), data.message || data.error || `HTTP ${res.status}`);
+        show($("signupStatus"), "Account confirmed. You can now log in.", true);
+        $("username").value = username;
       } catch (err) {
-        show(statusEl, `Network error during confirm: ${err.message}`);
+        show($("signupStatus"), `Network error: ${err.message}`);
       }
     });
 
-    // ---- LOGIN (Cognito via /auth/login) ----
-    document.getElementById("loginForm").addEventListener("submit", async (e) => {
+    // ---------- LOGIN ----------
+    $("loginForm").addEventListener("submit", async (e) => {
       e.preventDefault();
-      const username = document.getElementById("username").value.trim();
-      const password = document.getElementById("password").value;
-      const statusEl = document.getElementById("loginStatus");
-      show(statusEl, "Logging in...");
+      const username = $("username").value.trim();
+      const password = $("password").value;
+      usernameMemo = username;
+      show($("loginStatus"), "Logging in...");
+
+      hide($("mfaChallenge"));
+      pendingSession = null;
+      pendingChallenge = null;
 
       try {
         const res = await fetch(`${API}/auth/login`, {
@@ -155,103 +206,178 @@
         });
         const data = await res.json().catch(() => ({}));
 
-        // Handle challenge surfacing if you implemented that on the server
         if (!res.ok) {
+          // If the backend surfaced an MFA/other challenge
           if (data && data.error === "challenge_required") {
-            show(statusEl, `Challenge required: ${data.challenge}. (Complete via the appropriate endpoint.)`);
+            pendingSession = data.session;
+            pendingChallenge = data.challenge; // expect "SOFTWARE_TOKEN_MFA" (for app MFA)
+            unhide($("mfaChallenge"));
+            show($("loginStatus"), `MFA required: ${pendingChallenge}. Enter your 6-digit code.`);
             return;
           }
-          const msg = (data && (data.message || data.error)) || `HTTP ${res.status}`;
-          show(statusEl, `Login failed: ${msg}`);
-          return;
+          return show($("loginStatus"), (data && (data.message || data.error)) || `HTTP ${res.status}`);
         }
 
-        token = data.id_token || data.access_token || null;
-        if (!token) {
-          show(statusEl, "Login succeeded but no token was returned. (Challenge or server response issue.)");
-          return;
+        // Tokens on success
+        idToken = data.id_token || null;
+        accessToken = data.access_token || null;
+        if (!idToken && !accessToken) {
+          return show($("loginStatus"), "Login succeeded, but no token returned.");
         }
-        show(statusEl, "Logged in!", true);
+        show($("loginStatus"), "Logged in!", true);
+        // Enable MFA setup card
+        hide($("mfaSetupLoggedOut"));
+        unhide($("mfaSetup"));
+        await afterLoginCommon();
       } catch (err) {
-        show(statusEl, `Network error during login: ${err.message}`);
+        show($("loginStatus"), `Network error: ${err.message}`);
       }
     });
 
-    // ---- UPLOAD & START ANALYSIS (/videos/analyze, protected) ----
-    document.getElementById("uploadForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const statusEl = document.getElementById("uploadStatus");
-      if (!token) { show(statusEl, "Please log in first."); return; }
-
-      const file = document.getElementById("videoFile").files[0];
-      if (!file) { show(statusEl, "Choose a video file first."); return; }
-
-      show(statusEl, "Requesting presigned URL...");
+    // ---------- MFA LOGIN CHALLENGE (enter 6-digit) ----------
+    $("mfaSubmit").addEventListener("click", async () => {
+      const code = $("mfaCode").value.trim();
+      if (!pendingSession || !pendingChallenge) {
+        return show($("mfaStatus"), "No pending MFA challenge.");
+      }
+      show($("mfaStatus"), "Verifying code...");
 
       try {
-        // 1) presigned PUT
-        const presignRes = await fetch(`${API}/videos/presign-upload`, {
+        const res = await fetch(`${API}/auth/login/mfa`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: usernameMemo,
+            session: pendingSession,
+            code,
+            challenge: pendingChallenge, // "SOFTWARE_TOKEN_MFA"
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return show($("mfaStatus"), (data && (data.message || data.error)) || `HTTP ${res.status}`);
+
+        idToken = data.id_token || null;
+        accessToken = data.access_token || null;
+        if (!idToken && !accessToken) return show($("mfaStatus"), "Verified, but no token returned.");
+        show($("mfaStatus"), "MFA verified. Logged in!", true);
+
+        // Clean up challenge UI & enable MFA setup card
+        hide($("mfaChallenge"));
+        hide($("mfaSetupLoggedOut"));
+        unhide($("mfaSetup"));
+        await afterLoginCommon();
+      } catch (err) {
+        show($("mfaStatus"), `Network error: ${err.message}`);
+      }
+    });
+
+    // ---------- AUTHENTICATOR SETUP (ASSOCIATE → QR → VERIFY → PREFER) ----------
+    // 1) Associate to get secret (needs AccessToken)
+    $("mfaAssociateBtn").addEventListener("click", async () => {
+      if (!accessToken) return show($("mfaSetupStatus"), "You must be logged in.");
+      show($("mfaSetupStatus"), "Generating your secret...");
+
+      try {
+        const res = await fetch(`${API}/auth/mfa/associate`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.secret) {
+          return show($("mfaSetupStatus"), (data && (data.message || data.error)) || `HTTP ${res.status}`);
+        }
+
+        // Build otpauth:// URL the authenticator understands
+        const issuer = encodeURIComponent("CarCounter");
+        const label = encodeURIComponent(usernameMemo || "user");
+        const secret = data.secret; // base32
+        const uri = `otpauth://totp/${issuer}:${label}?secret=${secret}&issuer=${issuer}`;
+
+        // Quick QR image (external generator).
+        // If you prefer no external calls, I can swap this for an inline tiny QR implementation.
+        $("mfaQrImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(uri)}`;
+        $("mfaSecretText").textContent = secret;
+        $("mfaOtpUri").textContent = uri;
+
+        unhide($("mfaQrBlock"));
+        show($("mfaSetupStatus"), "Scan the QR in Microsoft Authenticator, then enter the 6-digit code below.", true);
+      } catch (err) {
+        show($("mfaSetupStatus"), `Network error: ${err.message}`);
+      }
+    });
+
+    // 2) Verify first TOTP
+    $("mfaVerifyBtn").addEventListener("click", async () => {
+      const code = $("mfaVerifyCode").value.trim();
+      if (!accessToken) return show($("mfaSetupStatus"), "You must be logged in.");
+      if (!code) return show($("mfaSetupStatus"), "Enter the 6-digit code from your app.");
+
+      show($("mfaSetupStatus"), "Verifying code...");
+
+      try {
+        const res = await fetch(`${API}/auth/mfa/verify`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
+            Authorization: `Bearer ${accessToken}`,
           },
-          body: JSON.stringify({ filename: file.name, contentType: file.type || "video/mp4" })
+          body: JSON.stringify({ code }),
         });
-        const presignData = await presignRes.json().catch(() => ({}));
-        if (!presignRes.ok) {
-          const msg = presignData.message || presignData.error || `HTTP ${presignRes.status}`;
-          show(statusEl, "Could not get presigned URL: " + msg);
-          return;
-        }
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return show($("mfaSetupStatus"), (data && (data.message || data.error)) || `HTTP ${res.status}`);
 
-        // 2) upload to S3
-        const putRes = await fetch(presignData.uploadUrl, {
-          method: "PUT",
-          headers: { "Content-Type": file.type || "video/mp4" },
-          body: file
-        });
-        if (!putRes.ok) {
-          const t = await putRes.text();
-          show(statusEl, "Upload to S3 failed: " + t);
-          return;
-        }
-
-        // 3) start analysis
-        show(statusEl, "Starting analysis...");
-        const startRes = await fetch(`${API}/videos/analyze-from-s3`, {
+        // 3) Mark TOTP as preferred
+        const res2 = await fetch(`${API}/auth/mfa/prefer`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          },
-          body: JSON.stringify({ key: presignData.key })
+          headers: { Authorization: `Bearer ${accessToken}` },
         });
-        const data = await startRes.json().catch(() => ({}));
-        if (!startRes.ok) {
-          const msg = data.message || data.error || `HTTP ${startRes.status}`;
-          show(statusEl, "Analyze error: " + msg);
-          return;
-        }
+        const data2 = await res2.json().catch(() => ({}));
+        if (!res2.ok) return show($("mfaSetupStatus"), (data2 && (data2.message || data2.error)) || `HTTP ${res2.status}`);
+
+        show($("mfaSetupStatus"), "Authenticator MFA enabled ✅ Next time you log in, you’ll be asked for a 6-digit code.", true);
+      } catch (err) {
+        show($("mfaSetupStatus"), `Network error: ${err.message}`);
+      }
+    });
+
+    // ---------- UPLOAD ----------
+    $("uploadForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const statusEl = $("uploadStatus");
+      if (!(idToken || accessToken)) return show(statusEl, "Please log in first.");
+
+      const file = $("videoFile").files[0];
+      if (!file) return show(statusEl, "Choose a video file first.");
+
+      const form = new FormData();
+      form.append("video", file);
+
+      show(statusEl, "Uploading and starting analysis...");
+      try {
+        const res = await fetch(`${API}/videos/analyze`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${idToken || accessToken}` },
+          body: form,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return show(statusEl, (data && (data.message || data.error)) || `HTTP ${res.status}`);
 
         show(statusEl, "Job started: " + JSON.stringify(data), true);
-        if (data.jobId) document.getElementById("jobId").value = data.jobId;
+        if (data.jobId) $("jobId").value = data.jobId;
       } catch (err) {
         show(statusEl, `Network error: ${err.message}`);
       }
     });
 
+    // ---------- RESULTS ----------
+    $("checkResult").addEventListener("click", async () => {
+      const outEl = $("resultOutput");
+      const videoEl = $("videoPlayer");
+      const gallery = $("gallery");
+      if (!(idToken || accessToken)) return outEl.textContent = "Please log in first.";
 
-    // ---- FETCH RESULT (/videos/:id, protected) ----
-    document.getElementById("checkResult").addEventListener("click", async () => {
-      const outEl = document.getElementById("resultOutput");
-      const videoEl = document.getElementById("videoPlayer");
-      const gallery = document.getElementById("gallery");
-
-      if (!token) { outEl.textContent = "Please log in first."; return; }
-
-      const id = document.getElementById("jobId").value.trim();
-      if (!id) { outEl.textContent = "No JobID."; return; }
+      const id = $("jobId").value.trim();
+      if (!id) return outEl.textContent = "No JobID.";
 
       outEl.textContent = "Fetching result...";
       videoEl.removeAttribute("src");
@@ -260,32 +386,28 @@
 
       try {
         const res = await fetch(`${API}/videos/${encodeURIComponent(id)}`, {
-          headers: { "Authorization": `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${idToken || accessToken}` },
         });
         const data = await res.json().catch(() => ({}));
-
-        if (!res.ok) {
-          outEl.textContent = "Error: " + (data.message || data.error || `HTTP ${res.status}`);
-          return;
-        }
+        if (!res.ok) { outEl.textContent = "Error: " + (data.message || data.error || `HTTP ${res.status}`); return; }
 
         outEl.textContent = JSON.stringify(data, null, 2);
-
         if (data.status === "done" && data.video) {
           videoEl.src = data.video;
           videoEl.style.display = "block";
         }
-
         if (data.status === "done" && Array.isArray(data.images)) {
           if (data.images.length === 0) {
-            const p = document.createElement('p');
+            const p = document.createElement("p");
             p.textContent = "No snapshots";
             gallery.appendChild(p);
           } else {
             data.images.forEach(url => {
-              const img = document.createElement('img');
-              img.src = url;  // presigned HTTPS
+              const img = document.createElement("img");
+              img.src = url;
               img.loading = "lazy";
+              img.style.maxWidth = "320px";
+              img.style.margin = "6px";
               gallery.appendChild(img);
             });
           }
@@ -294,6 +416,94 @@
         outEl.textContent = `Network error: ${err.message}`;
       }
     });
+
+    // Show/hide MFA setup card based on login state
+    function syncMfaSetupVisibility() {
+      if (idToken || accessToken) {
+        hide($("mfaSetupLoggedOut"));
+        unhide($("mfaSetup"));
+      } else {
+        unhide($("mfaSetupLoggedOut"));
+        hide($("mfaSetup"));
+      }
+    }
+    syncMfaSetupVisibility();
+
+// ---------- Google Login ----------
+  document.getElementById("googleBtn").addEventListener("click", () => {
+  window.location.href = "/auth/google/login";
+});
+
+// When we return from /auth/oauth/callback we get tokens in location.hash
+(function pickTokensFromHash() {
+  if (!location.hash) return;
+  const p = new URLSearchParams(location.hash.slice(1));
+  const id = p.get("id_token");
+  const at = p.get("access_token");
+  if (id || at) {
+    idToken = id || null;
+    accessToken = at || null;
+
+    // Clean URL
+    history.replaceState(null, "", location.pathname + location.search);
+
+    const el = document.getElementById("loginStatus");
+    if (el) { el.textContent = "Logged in with Google"; el.className = "ok"; }
+
+    // Show MFA setup card etc. (if you have that UI)
+    const lo = document.getElementById("mfaSetupLoggedOut");
+    const mf = document.getElementById("mfaSetup");
+    if (lo && mf) { lo.classList.add("hidden"); mf.classList.remove("hidden"); }
+    afterLoginCommon();
+  }
+})();
+
+let isAdmin = false;
+
+async function fetchMe() {
+  const token = idToken || accessToken;
+  if (!token) return null;
+  const r = await fetch(`/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) return null;
+  return r.json();
+}
+
+function applyAdminUI() {
+  const panel = $("adminPanel");
+  if (isAdmin) unhide(panel); else hide(panel);
+}
+
+// Call after any successful login:
+async function afterLoginCommon() {
+  const me = await fetchMe();
+  isAdmin = !!(me && me.isAdmin);
+  applyAdminUI();
+}
+
+// Wire admin search
+$("loadAllJobsBtn")?.addEventListener("click", async () => {
+  const out = $("adminOut");
+  if (!isAdmin) { out.textContent = "Not admin"; return; }
+
+  const qs = new URLSearchParams({
+    owner:  $("admOwner").value.trim(),
+    status: $("admStatus").value,
+    from:   $("admFrom").value, // yyyy-mm-dd
+    to:     $("admTo").value,
+  });
+  for (const [k, v] of [...qs.entries()]) if (!v) qs.delete(k);
+
+  try {
+    const r = await fetch(`/videos/admin?${qs}`, {
+      headers: { Authorization: `Bearer ${idToken || accessToken}` }
+    });
+    const data = await r.json();
+    out.textContent = JSON.stringify(data, null, 2);
+  } catch (e) {
+    out.textContent = e.message;
+  }
+});
+
   </script>
 </body>
 </html>

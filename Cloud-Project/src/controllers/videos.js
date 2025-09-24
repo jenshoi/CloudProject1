@@ -411,24 +411,22 @@ exports.streamOutput = async (req, res) => {
 };
 
 exports.listAll = async (req, res) => {
-  try{
-    const limit = Math.min(Number(req.query.limit || 50), 200);
-    const offset = Number(req.query.offset || 0);
+  try {
+    const limit  = Math.min(Number(req.query.limit || 50), 200);
+    const offset = Number(req.query.offset || 0); // not used by Dynamo Query directly
+    const status = req.query.status || undefined;
+    const from   = req.query.from   || undefined;
+    const to     = req.query.to     || undefined;
 
-    const ck = `list:${limit}:${offset}`;
-    const cached = await getAsync(ck);      
-    if (cached) {                           
-      console.log('[cache] HIT', ck);       
-      return res.json(JSON.parse(cached));  
-    }                                       
-    console.log('[cache] MISS', ck);        
+    const rows = await listJobs({
+      limit,
+      qutUsername,
+      owner: req.user.username,  // ← only mine
+      status, from, to
+    });
 
-    const rows = await listJobs({ limit, offset, qutUsername });
-    const out = { items: rows, limit, offset }; 
-    await setAsync(ck, JSON.stringify(out), 60); 
-    return res.json(out);
-  }
-  catch (e) {
+    return res.json({ items: rows, limit, offset });
+  } catch (e) {
     console.error('listAll failed:', e);
     return res.status(500).json({ error: 'listAll failed', message: e.message });
   }
@@ -465,10 +463,18 @@ function streamToFile(stream, filePath) {
 exports.listAllAdmin = async (req, res) => {
   const isAdmin = req.user?.groups?.includes('admin');
   if (!isAdmin) return res.status(403).json({ error: 'admin only' });
-  const limit = Math.min(Number(req.query.limit || 50), 200);
+
+  const limit  = Math.min(Number(req.query.limit || 50), 200);
   const offset = Number(req.query.offset || 0);
-  const rows = await listJobs({ limit, offset, qutUsername });
-  return res.json({ items: rows, limit, offset });
+  const owner  = req.query.owner  || undefined;
+  const status = req.query.status || undefined;
+  const from   = req.query.from   || undefined; // ISO date
+  const to     = req.query.to     || undefined;
+
+  const rows = await listJobs({ limit, qutUsername, owner, status, from, to });
+  const summary = rows.reduce((a, r) => (a[r.status] = (a[r.status] || 0) + 1, a), {});
+
+  return res.json({ items: rows, limit, offset, summary });
 };
 
 

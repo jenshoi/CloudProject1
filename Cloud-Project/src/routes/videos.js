@@ -4,7 +4,7 @@ const router = express.Router(); //video-related routes in same file
 
 const controller = require('../controllers/videos'); //hvor vi definerer hva som skjer når en route kalles
 const upload = require('../middleware/multer'); // multer middleware som håndterer opplastingen i selve videofilen
-
+const { requireGroup } = require('../auth/cognito'); 
 
 
 //Changed
@@ -21,6 +21,9 @@ router.get('/', controller.listAll)
 router.post('/presign-upload', controller.presignUpload);
 router.post('/analyze-from-s3', controller.analyzeFromS3);
 
+//admin
+
+router.get('/admin', requireGroup('admin'), controller.listAllAdmin); 
 
 module.exports = router; //eksporter
 
